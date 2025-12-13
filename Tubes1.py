@@ -102,7 +102,7 @@ if menu == "Pinjaman":
             sisa -= pokok
             if sisa < 0:
                 sisa = 0
-
+                
             data.append([b, sisa])
 
             if sisa == 0:
