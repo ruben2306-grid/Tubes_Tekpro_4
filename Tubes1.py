@@ -57,7 +57,7 @@ if menu == "Tabungan":
             "Bulan": waktu,
             "Saldo (Rp)": saldo
         })
-
+        
         df_tampil = df.copy()
         df_tampil["Saldo (Rp)"] = df_tampil["Saldo (Rp)"].apply(format_id)
 
