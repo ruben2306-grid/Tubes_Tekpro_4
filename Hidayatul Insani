@@ -1,0 +1,119 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# --- 1. Fungsi Perhitungan ---
+
+def hitung_tabungan_majemuk(pokok, suku_bunga_tahunan, periode_tahunan, durasi_tahun, setoran_berkala=0):
+    """
+    Menghitung saldo tabungan majemuk setiap periode, termasuk setoran berkala (optional).
+    
+    :return: (periode_array, saldo_array)
+    """
+    total_periode = durasi_tahun * periode_tahunan
+    suku_bunga_periode = suku_bunga_tahunan / periode_tahunan
+    
+    # Inisialisasi array saldo dengan NumPy
+    saldo_array = np.zeros(total_periode + 1)
+    saldo_array[0] = pokok
+    
+    # Kontrol Alur: Loop perhitungan saldo
+    for i in range(1, total_periode + 1):
+        saldo_sebelumnya = saldo_array[i-1]
+        
+        # Bunga Majemuk: Saldo baru = (Saldo lama + Setoran berkala) * (1 + Suku Bunga Periode)
+        saldo_array[i] = (saldo_sebelumnya + setoran_berkala) * (1 + suku_bunga_periode)
+        
+    periode_array = np.arange(total_periode + 1)
+    return periode_array, saldo_array
+
+def hitung_pinjaman_anuitas(pokok, suku_bunga_tahunan, durasi_bulan):
+    """
+    Menghitung cicilan bulanan, saldo utang, dan komposisi bunga/pokok (Anuitas).
+    
+    :return: dict berisi 'saldo_utang', 'periode_bulan', 'cicilan_bulanan'
+    """
+    # Suku bunga bulanan
+    r = suku_bunga_tahunan / 12
+    n = durasi_bulan
+    
+    # Menghitung cicilan bulanan (Anuitas)
+    if r == 0:
+        cicilan_bulanan = pokok / n
+    else:
+        # Rumus Anuitas menggunakan NumPy (Penyebut dan Pembilang)
+        cicilan_bulanan = pokok * (r * (1 + r)**n) / (((1 + r)**n) - 1)
+    
+    # Inisialisasi array menggunakan NumPy
+    saldo_utang = np.zeros(n + 1)
+    bunga_bayar = np.zeros(n + 1)
+    pokok_bayar = np.zeros(n + 1)
+    
+    saldo_utang[0] = pokok
+    
+    # Kontrol Alur: Loop untuk perhitungan per bulan
+    for i in range(1, n + 1):
+        sisa_utang = saldo_utang[i-1]
+        
+        # Perhitungan Bunga dan Pokok
+        bunga_bayar[i] = sisa_utang * r
+        pokok_bayar[i] = cicilan_bulanan - bunga_bayar[i]
+        
+        # Update Saldo Utang
+        saldo_utang[i] = sisa_utang - pokok_bayar[i]
+        
+        # Penyesuaian akhir (pembulatan)
+        if saldo_utang[i] < 0:
+             saldo_utang[i] = 0
+             pokok_bayar[i] = saldo_utang[i-1] 
+
+    periode_bulan = np.arange(n + 1)
+    
+    # Menggunakan dictionary sebagai struktur data untuk mengembalikan hasil
+    return {
+        'saldo_utang': saldo_utang, 
+        'periode_bulan': periode_bulan, 
+        'cicilan_bulanan': cicilan_bulanan,
+        'bunga_bayar': bunga_bayar,
+        'pokok_bayar': pokok_bayar
+    }
+
+# --- 2. Fungsi Visualisasi ---
+
+def buat_grafik(data, mode, judul):
+    """
+    Membuat dan menampilkan grafik perkembangan simulasi.
+    """
+    plt.figure(figsize=(12, 7))
+    
+    if mode == 'tabungan':
+        periode = data['periode']
+        saldo = data['saldo']
+        
+        plt.plot(periode, saldo, marker='o', linestyle='-', color='teal', label='Total Saldo')
+        plt.title(f'📈 Perkembangan Saldo Tabungan: {judul}', fontsize=16)
+        plt.xlabel(f'Periode (Bulan)', fontsize=12)
+        plt.ylabel('Saldo (Rp)', fontsize=12)
+    
+    elif mode == 'pinjaman':
+        periode = data['periode_bulan']
+        saldo = data['saldo_utang']
+        pokok = data['pokok_bayar']
+        bunga = data['bunga_bayar']
+        cicilan = data['cicilan_bulanan']
+
+        # Grafik Saldo Utang
+        plt.plot(periode, saldo, linestyle='-', color='firebrick', linewidth=3, label='Sisa Utang')
+        
+        # Grafik Komposisi Cicilan (Stack Plot)
+        # Menghilangkan elemen pertama (indeks 0) yang merupakan inisialisasi awal
+        plt.stackplot(periode[1:], pokok[1:], bunga[1:], labels=['Pembayaran Pokok', 'Pembayaran Bunga'], colors=['lightcoral', 'indianred'], alpha=0.6)
+
+        plt.title(f'📉 Simulasi Pinjaman Anuitas - Cicilan Bulanan: Rp {cicilan:,.0f}', fontsize=16)
+        plt.xlabel('Bulan', fontsize=12)
+        plt.ylabel('Jumlah (Rp)', fontsize=12)
+    
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend()
+    plt.ticklabel_format(style='plain', axis='y') 
+    plt.tight_layout()
+    plt.show()
