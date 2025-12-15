@@ -121,3 +121,14 @@ if menu == "Pinjaman":
             st.line_chart(df.set_index("Bulan"))
 
             st.success(f"Angsuran bulanan: Rp {format_id(angsuran)}")
+
+            total_setoran = saldo_awal + setoran * bulan
+            total_bunga = saldo[-1] - total_setoran
+            
+            st.info(f"Total setoran: Rp {format_id(total_setoran)}")
+            st.info(f"Total bunga diperoleh: Rp {format_id(total_bunga)}")
+
+            total_bunga = 0
+
+            st.success(f"Lunas dalam {len(data)} bulan")
+            st.info(f"Total bunga dibayar: Rp {format_id(total_bunga)}")
