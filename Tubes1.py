@@ -133,3 +133,15 @@ if menu == "Pinjaman":
                 st.info(f"Total pembayaran: Rp {format_id(total_bayar)}")
                 st.info(f"Total bunga dibayar: Rp {format_id(total_bunga)}")
                 st.success(f"Lunas dalam {len(data)} bulan")
+                st.info(f"Jumlah pinjaman awal: Rp {format_id(pinjaman)}")
+                lama_bulan = len(data)
+                lama_hari = lama_bulan * 30
+                lama_tahun = lama_bulan // 12
+                sisa_bulan = lama_bulan % 12
+
+                st.info(
+                    f"Lama pembayaran: "
+                    f"{lama_hari} hari / "
+                    f"{lama_bulan} bulan / "
+                    f"{lama_tahun} tahun {sisa_bulan} bulan"
+                    )
