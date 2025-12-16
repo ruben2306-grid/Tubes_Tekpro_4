@@ -2,30 +2,31 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import re
+from io import BytesIO
+import openpyxl
+from openpyxl import load_workbook
+from openpyxl.chart import LineChart, Reference
 
 st.set_page_config(page_title="Kalkulator Finansial", layout="centered")
 st.title("Kalkulator Finansial Sederhana")
 
 st.info(
-    "📌 **Petunjuk Pengisian Angka**\n\n"
-    "- Gunakan **titik (.)** untuk ribuan → contoh: 1.500.000\n"
-    "- Gunakan **koma (,)** untuk desimal → contoh: 10,5\n"
-    "- ❌ Jangan gunakan format lain (misal: 1,500,000)"
+    "📌 Petunjuk:\n"
+    "- Titik (.) untuk ribuan → 1.500.000\n"
+    "- Koma (,) untuk desimal → 10,5"
 )
 
 menu = st.sidebar.selectbox("Pilih Simulasi", ["Tabungan", "Pinjaman"])
 
 def valid_format(teks):
-    pola = r'^(\d{1,3}(\.\d{3})*|\d+)(,\d+)?$'
-    return re.match(pola, teks) is not None
+    return re.match(r'^(\d{1,3}(\.\d{3})*|\d+)(,\d+)?$', teks)
 
 def rupiah_to_float(teks):
     return float(teks.replace(".", "").replace(",", "."))
 
-def format_id(angka):
-    s = f"{angka:,.2f}"
-    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
-    return s
+def format_id(x):
+    s = f"{x:,.2f}"
+    return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
 # ================= TABUNGAN =================
 if menu == "Tabungan":
@@ -35,60 +36,79 @@ if menu == "Tabungan":
     setoran_txt = st.text_input("Setoran Bulanan (Rp)")
     bunga_txt = st.text_input("Bunga Tahunan (%)")
     bulan = st.slider("Lama Menabung (bulan)", 1, 120, 12)
-    submit_tabungan = st.button("Submit Tabungan")
 
-    if submit_tabungan:  # <<< DIBENARKAN (LOGIKA DIKUNCI TOMBOL)
-        inputs = [saldo_txt, setoran_txt, bunga_txt]  # <<< DIBENARKAN (SALAH VARIABEL)
-
-        if any(i == "" for i in inputs):
-            st.warning("Silakan isi seluruh data.")
-        elif not all(valid_format(i) for i in inputs if i != ""):
-            st.error("❌ Format angka salah.")
+    if st.button("Submit Tabungan"):
+        if "" in [saldo_txt, setoran_txt, bunga_txt]:
+            st.warning("Lengkapi data.")
+        elif not all(valid_format(i) for i in [saldo_txt, setoran_txt, bunga_txt]):
+            st.error("Format angka salah.")
         else:
             saldo_awal = rupiah_to_float(saldo_txt)
             setoran = rupiah_to_float(setoran_txt)
             bunga = rupiah_to_float(bunga_txt) / 100 / 12
 
-            waktu = np.arange(0, bulan + 1)
-            saldo = np.zeros(len(waktu))
+            bulan_arr = np.arange(0, bulan + 1)
+            saldo = np.zeros(len(bulan_arr))
             saldo[0] = saldo_awal
 
-            for i in range(1, len(waktu)):
-                saldo[i] = saldo[i - 1] * (1 + bunga) + setoran
+            for i in range(1, len(bulan_arr)):
+                saldo[i] = saldo[i-1] * (1 + bunga) + setoran
 
-            df = pd.DataFrame({
-                "Bulan": waktu,
-                "Saldo (Rp)": saldo
-            })
-            
-            df_tampil = df.copy()
-            df_tampil["Saldo (Rp)"] = df_tampil["Saldo (Rp)"].apply(format_id)
+            df = pd.DataFrame({"Bulan": bulan_arr, "Saldo (Rp)": saldo})
 
-            st.write("### Tabel Perkembangan Saldo")
-            st.dataframe(df_tampil)
-
-            st.write("### Grafik Saldo Tabungan")
+            st.dataframe(df.assign(
+                **{"Saldo (Rp)": df["Saldo (Rp)"].apply(format_id)}
+            ))
             st.line_chart(df.set_index("Bulan"))
 
-            st.success(f"Saldo akhir: Rp {format_id(saldo[-1])}")
+            # ===== RINGKASAN TABUNGAN =====
+            st.success(f"Total saldo akhir tabungan: Rp {format_id(saldo[-1])}")
+
+            # ===== EXCEL TABUNGAN + GRAFIK =====
+            buf = BytesIO()
+            df.to_excel(buf, index=False, sheet_name="Tabungan", engine="openpyxl")
+            buf.seek(0)
+
+            wb = load_workbook(buf)
+            ws = wb["Tabungan"]
+
+            chart = LineChart()
+            chart.title = "Grafik Saldo Tabungan"
+            chart.x_axis.title = "Bulan"
+            chart.y_axis.title = "Saldo (Rp)"
+
+            y = Reference(ws, min_col=2, min_row=1, max_row=ws.max_row)
+            x = Reference(ws, min_col=1, min_row=2, max_row=ws.max_row)
+
+            chart.add_data(y, titles_from_data=True)
+            chart.set_categories(x)
+            ws.add_chart(chart, "E2")
+
+            out = BytesIO()
+            wb.save(out)
+            out.seek(0)
+
+            st.download_button(
+                "📥 Download Excel Tabungan + Grafik",
+                out,
+                "hasil_tabungan.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
 # ================= PINJAMAN =================
 if menu == "Pinjaman":
     st.subheader("Simulasi Pinjaman")
 
     pinjaman_txt = st.text_input("Jumlah Pinjaman (Rp)")
-    angsuran_txt = st.text_input("Angsuran / Setoran Bulanan (Rp)")
+    angsuran_txt = st.text_input("Angsuran Bulanan (Rp)")
     bunga_txt = st.text_input("Bunga Tahunan (%)")
-    tenor = st.slider("Tenor Pinjaman (bulan)", 1, 120, 12)
-    submit_pinjaman = st.button("Submit Pinjaman")
+    tenor = st.slider("Tenor (bulan)", 1, 120, 12)
 
-    if submit_pinjaman:  # <<< DIBENARKAN (LOGIKA DIKUNCI TOMBOL)
-        inputs = [pinjaman_txt, angsuran_txt, bunga_txt]
-
-        if any(i == "" for i in inputs):
-            st.warning("Silakan isi seluruh data.")
-        elif not all(valid_format(i) for i in inputs if i != ""):
-            st.error("❌ Format angka salah.")
+    if st.button("Submit Pinjaman"):
+        if "" in [pinjaman_txt, angsuran_txt, bunga_txt]:
+            st.warning("Lengkapi data.")
+        elif not all(valid_format(i) for i in [pinjaman_txt, angsuran_txt, bunga_txt]):
+            st.error("Format angka salah.")
         else:
             pinjaman = rupiah_to_float(pinjaman_txt)
             angsuran = rupiah_to_float(angsuran_txt)
@@ -100,40 +120,31 @@ if menu == "Pinjaman":
             for b in range(1, tenor + 1):
                 bunga_bln = sisa * bunga
                 pokok = angsuran - bunga_bln
-
                 if pokok <= 0:
-                    st.error("❌ Angsuran terlalu kecil, utang tidak akan berkurang.")
+                    st.error("❌ Angsuran terlalu kecil.")
                     break
-
-                sisa -= pokok
-                if sisa < 0:
-                    sisa = 0
-
+                sisa = max(sisa - pokok, 0)
                 data.append([b, sisa])
                 if sisa == 0:
                     break
 
-            if len(data) > 0:
+            if data:
                 df = pd.DataFrame(data, columns=["Bulan", "Sisa Utang (Rp)"])
-
-                df_tampil = df.copy()
-                df_tampil["Sisa Utang (Rp)"] = df_tampil["Sisa Utang (Rp)"].apply(format_id)
-
-                st.write("### Tabel Sisa Utang")
-                st.dataframe(df_tampil)
-
-                st.write("### Grafik Sisa Utang")
+                st.dataframe(df.assign(
+                    **{"Sisa Utang (Rp)": df["Sisa Utang (Rp)"].apply(format_id)}
+                ))
                 st.line_chart(df.set_index("Bulan"))
 
-                st.success(f"Angsuran bulanan: Rp {format_id(angsuran)}")
-
+                # ===== RINGKASAN PINJAMAN =====
                 total_bayar = angsuran * len(data)
                 total_bunga = total_bayar - pinjaman
 
+                st.success(f"Angsuran bulanan: Rp {format_id(angsuran)}")
                 st.info(f"Total pembayaran: Rp {format_id(total_bayar)}")
                 st.info(f"Total bunga dibayar: Rp {format_id(total_bunga)}")
                 st.success(f"Lunas dalam {len(data)} bulan")
                 st.info(f"Jumlah pinjaman awal: Rp {format_id(pinjaman)}")
+
                 lama_bulan = len(data)
                 lama_hari = lama_bulan * 30
                 lama_tahun = lama_bulan // 12
@@ -144,4 +155,35 @@ if menu == "Pinjaman":
                     f"{lama_hari} hari / "
                     f"{lama_bulan} bulan / "
                     f"{lama_tahun} tahun {sisa_bulan} bulan"
-                    )
+                )
+
+                # ===== EXCEL PINJAMAN + GRAFIK =====
+                buf = BytesIO()
+                df.to_excel(buf, index=False, sheet_name="Pinjaman", engine="openpyxl")
+                buf.seek(0)
+
+                wb = load_workbook(buf)
+                ws = wb["Pinjaman"]
+
+                chart = LineChart()
+                chart.title = "Grafik Sisa Utang"
+                chart.x_axis.title = "Bulan"
+                chart.y_axis.title = "Sisa Utang (Rp)"
+
+                y = Reference(ws, min_col=2, min_row=1, max_row=ws.max_row)
+                x = Reference(ws, min_col=1, min_row=2, max_row=ws.max_row)
+
+                chart.add_data(y, titles_from_data=True)
+                chart.set_categories(x)
+                ws.add_chart(chart, "E2")
+
+                out = BytesIO()
+                wb.save(out)
+                out.seek(0)
+
+                st.download_button(
+                    "📥 Download Excel Pinjaman + Grafik",
+                    out,
+                    "hasil_pinjaman.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
