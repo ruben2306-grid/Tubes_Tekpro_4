@@ -2,91 +2,141 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import re
+from io import BytesIO
+from openpyxl import load_workbook
+from openpyxl.chart import LineChart, Reference
 
 st.set_page_config(page_title="Kalkulator Finansial", layout="centered")
 st.title("Kalkulator Finansial Sederhana")
 
-st.info(
-    "📌 **Petunjuk Pengisian Angka**\n\n"
-    "- Gunakan **titik (.)** untuk ribuan → contoh: 1.500.000\n"
-    "- Gunakan **koma (,)** untuk desimal → contoh: 10,5\n"
-    "- ❌ Jangan gunakan format lain (misal: 1,500,000)"
-)
-
 menu = st.sidebar.selectbox("Pilih Simulasi", ["Tabungan", "Pinjaman"])
+input_mode = st.radio("Sumber Input", ["Input Manual", "Upload Excel"])
 
 def valid_format(teks):
-    pola = r'^(\d{1,3}(\.\d{3})*|\d+)(,\d+)?$'
-    return re.match(pola, teks) is not None
+    return re.match(r'^(\d{1,3}(\.\d{3})*|\d+)(,\d+)?$', teks)
 
 def rupiah_to_float(teks):
     return float(teks.replace(".", "").replace(",", "."))
 
-def format_id(angka):
-    s = f"{angka:,.2f}"
-    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
-    return s
+def format_id(x):
+    s = f"{x:,.2f}"
+    return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
+# ================= TABUNGAN =================
 if menu == "Tabungan":
     st.subheader("Simulasi Tabungan")
 
-    saldo_txt = st.text_input("Saldo Awal (Rp)")
-    setoran_txt = st.text_input("Setoran Bulanan (Rp)")
-    bunga_txt = st.text_input("Bunga Tahunan (%)")
-    bulan = st.slider("Lama Menabung (bulan)", 1, 120, 12)
-
-    inputs = [saldo_txt, setoran_txt, bunga_txt]
-
-    if all(i == "" for i in inputs):
-        st.warning("Silakan isi seluruh data.")
-    elif not all(valid_format(i) for i in inputs if i != ""):
-        st.error("❌ Format angka salah. Gunakan titik ribuan dan koma desimal.")
+    if input_mode == "Input Manual":
+        saldo_txt = st.text_input("Saldo Awal (Rp)")
+        setoran_txt = st.text_input("Setoran Bulanan (Rp)")
+        bunga_txt = st.text_input("Bunga Tahunan (%)")
+        bulan = st.slider("Lama Menabung (bulan)", 1, 120, 12)
     else:
-        saldo_awal = rupiah_to_float(saldo_txt)
-        setoran = rupiah_to_float(setoran_txt)
-        bunga = rupiah_to_float(bunga_txt) / 100 / 12
+        file = st.file_uploader(
+            "Upload Excel Tabungan (kolom: saldo_awal, setoran_bulanan, bunga_tahunan, lama_bulan)",
+            type=["xlsx"]
+        )
 
-        waktu = np.arange(0, bulan + 1)
-        saldo = np.zeros(len(waktu))
+    if st.button("Submit Tabungan"):
+        if input_mode == "Input Manual":
+            if "" in [saldo_txt, setoran_txt, bunga_txt]:
+                st.warning("Lengkapi data.")
+                st.stop()
+            saldo_awal = rupiah_to_float(saldo_txt)
+            setoran = rupiah_to_float(setoran_txt)
+            bunga = rupiah_to_float(bunga_txt) / 100 / 12
+        else:
+            if file is None:
+                st.warning("Upload file Excel.")
+                st.stop()
+            df_in = pd.read_excel(file)
+            saldo_awal = df_in.loc[0, "saldo_awal"]
+            setoran = df_in.loc[0, "setoran_bulanan"]
+            bunga = df_in.loc[0, "bunga_tahunan"] / 100 / 12
+            bulan = int(df_in.loc[0, "lama_bulan"])
+
+        bulan_arr = np.arange(0, bulan + 1)
+        saldo = np.zeros(len(bulan_arr))
         saldo[0] = saldo_awal
 
-        for i in range(1, len(waktu)):
+        for i in range(1, len(bulan_arr)):
             saldo[i] = saldo[i - 1] * (1 + bunga) + setoran
 
         df = pd.DataFrame({
-            "Bulan": waktu,
+            "No": np.arange(1, len(bulan_arr) + 1),
+            "Bulan": bulan_arr,
             "Saldo (Rp)": saldo
         })
-        
-        df_tampil = df.copy()
-        df_tampil["Saldo (Rp)"] = df_tampil["Saldo (Rp)"].apply(format_id)
 
-        st.write("### Tabel Perkembangan Saldo")
-        st.dataframe(df_tampil)
+        st.dataframe(df.assign(
+            **{"Saldo (Rp)": df["Saldo (Rp)"].apply(format_id)}
+        ))
+        st.line_chart(df.set_index("Bulan")["Saldo (Rp)"])
 
-        st.write("### Grafik Saldo Tabungan")
-        st.line_chart(df.set_index("Bulan"))
+        st.success(f"Total saldo akhir tabungan: Rp {format_id(saldo[-1])}")
 
-        st.success(f"Saldo akhir: Rp {format_id(saldo[-1])}")
+        buf = BytesIO()
+        df.to_excel(buf, index=False, sheet_name="Tabungan")
+        buf.seek(0)
 
+        wb = load_workbook(buf)
+        ws = wb["Tabungan"]
+
+        chart = LineChart()
+        chart.title = "Grafik Saldo Tabungan"
+        chart.x_axis.title = "Bulan"
+        chart.y_axis.title = "Saldo (Rp)"
+
+        y = Reference(ws, min_col=3, min_row=1, max_row=ws.max_row)
+        x = Reference(ws, min_col=2, min_row=2, max_row=ws.max_row)
+
+        chart.add_data(y, titles_from_data=True)
+        chart.set_categories(x)
+        ws.add_chart(chart, "F2")
+
+        out = BytesIO()
+        wb.save(out)
+        out.seek(0)
+
+        st.download_button(
+            "📥 Download Excel Tabungan + Grafik",
+            out,
+            "hasil_tabungan.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+# ================= PINJAMAN =================
 if menu == "Pinjaman":
     st.subheader("Simulasi Pinjaman")
 
-    pinjaman_txt = st.text_input("Jumlah Pinjaman (Rp)")
-    angsuran_txt = st.text_input("Angsuran / Setoran Bulanan (Rp)")
-    bunga_txt = st.text_input("Bunga Tahunan (%)")
-    tenor = st.slider("Tenor Pinjaman (bulan)", 1, 120, 12)
-
-    inputs = [pinjaman_txt, angsuran_txt, bunga_txt]
-
-    if all(i == "" for i in inputs):
-        st.warning("Silakan isi seluruh data.")
-    elif not all(valid_format(i) for i in inputs if i != ""):
-        st.error("❌ Format angka salah. Gunakan titik ribuan dan koma desimal.")
+    if input_mode == "Input Manual":
+        pinjaman_txt = st.text_input("Jumlah Pinjaman (Rp)")
+        angsuran_txt = st.text_input("Angsuran Bulanan (Rp)")
+        bunga_txt = st.text_input("Bunga Tahunan (%)")
+        tenor = st.slider("Tenor (bulan)", 1, 120, 12)
     else:
-        pinjaman = rupiah_to_float(pinjaman_txt)
-        angsuran = rupiah_to_float(angsuran_txt)
-        bunga = rupiah_to_float(bunga_txt) / 100 / 12
+        file = st.file_uploader(
+            "Upload Excel Pinjaman (kolom: pinjaman, angsuran, bunga_tahunan, tenor)",
+            type=["xlsx"]
+        )
+
+    if st.button("Submit Pinjaman"):
+        if input_mode == "Input Manual":
+            if "" in [pinjaman_txt, angsuran_txt, bunga_txt]:
+                st.warning("Lengkapi data.")
+                st.stop()
+            pinjaman = rupiah_to_float(pinjaman_txt)
+            angsuran = rupiah_to_float(angsuran_txt)
+            bunga = rupiah_to_float(bunga_txt) / 100 / 12
+        else:
+            if file is None:
+                st.warning("Upload file Excel.")
+                st.stop()
+            df_in = pd.read_excel(file)
+            pinjaman = df_in.loc[0, "pinjaman"]
+            angsuran = df_in.loc[0, "angsuran"]
+            bunga = df_in.loc[0, "bunga_tahunan"] / 100 / 12
+            tenor = int(df_in.loc[0, "tenor"])
 
         sisa = pinjaman
         data = []
@@ -94,49 +144,55 @@ if menu == "Pinjaman":
         for b in range(1, tenor + 1):
             bunga_bln = sisa * bunga
             pokok = angsuran - bunga_bln
-
             if pokok <= 0:
-                st.error("❌ Angsuran terlalu kecil, utang tidak akan berkurang.")
+                st.error("Angsuran terlalu kecil.")
                 break
-
-            sisa -= pokok
-            if sisa < 0:
-                sisa = 0
-                
-            data.append([b, sisa])
-
+            sisa = max(sisa - pokok, 0)
+            data.append([b, b, sisa])
             if sisa == 0:
                 break
 
-        if len(data) > 0:
-            df = pd.DataFrame(data, columns=["Bulan", "Sisa Utang (Rp)"])
+        if data:
+            df = pd.DataFrame(data, columns=["No", "Bulan", "Sisa Utang (Rp)"])
 
-            df_tampil = df.copy()
-            df_tampil["Sisa Utang (Rp)"] = df_tampil["Sisa Utang (Rp)"].apply(format_id)
+            st.dataframe(df.assign(
+                **{"Sisa Utang (Rp)": df["Sisa Utang (Rp)"].apply(format_id)}
+            ))
+            st.line_chart(df.set_index("Bulan")["Sisa Utang (Rp)"])
 
-            st.write("### Tabel Sisa Utang")
-            st.dataframe(df_tampil)
-
-            st.write("### Grafik Sisa Utang")
-            st.line_chart(df.set_index("Bulan"))
-
-            st.success(f"Angsuran bulanan: Rp {format_id(angsuran)}")
-
-            total_setoran = saldo_awal + setoran * bulan
-            total_bunga = saldo[-1] - total_setoran
-            
-            st.info(f"Total setoran: Rp {format_id(total_setoran)}")
-            st.info(f"Total bunga diperoleh: Rp {format_id(total_bunga)}")
-
-            total_bunga = 0
-
-            st.success(f"Lunas dalam {len(data)} bulan")
-            st.info(f"Total bunga dibayar: Rp {format_id(total_bunga)}")
-
-            total_bayar = angsuran * len(data)
+            total_bayar = angsuran * len(df)
             total_bunga = total_bayar - pinjaman
 
-            st.info(f"Total pembayaran: Rp {format_id(total_bayar)}")
-            st.info(f"Total bunga dibayar: Rp {format_id(total_bunga)}")
+            st.success(f"Total pembayaran: Rp {format_id(total_bayar)}")
+            st.info(f"Total bunga: Rp {format_id(total_bunga)}")
+            st.success(f"Lunas dalam {len(df)} bulan")
 
-            st.success(f"Lunas dalam {len(data)} bulan")
+            buf = BytesIO()
+            df.to_excel(buf, index=False, sheet_name="Pinjaman")
+            buf.seek(0)
+
+            wb = load_workbook(buf)
+            ws = wb["Pinjaman"]
+
+            chart = LineChart()
+            chart.title = "Grafik Sisa Utang"
+            chart.x_axis.title = "Bulan"
+            chart.y_axis.title = "Sisa Utang (Rp)"
+
+            y = Reference(ws, min_col=3, min_row=1, max_row=ws.max_row)
+            x = Reference(ws, min_col=2, min_row=2, max_row=ws.max_row)
+
+            chart.add_data(y, titles_from_data=True)
+            chart.set_categories(x)
+            ws.add_chart(chart, "F2")
+
+            out = BytesIO()
+            wb.save(out)
+            out.seek(0)
+
+            st.download_button(
+                "📥 Download Excel Pinjaman + Grafik",
+                out,
+                "hasil_pinjaman.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
