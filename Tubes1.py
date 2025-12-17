@@ -3,11 +3,12 @@ import numpy as np
 import pandas as pd
 import re
 from io import BytesIO
-from openpyxl import load_workbook
-from openpyxl.chart import LineChart, Reference
+
 
 st.set_page_config(page_title="Kalkulator Finansial", layout="centered")
 st.title("Kalkulator Finansial Sederhana")
+
+
 
 menu = st.sidebar.selectbox("Pilih Simulasi", ["Tabungan", "Pinjaman"])
 input_mode = st.radio("Sumber Input", ["Input Manual", "Upload Excel"])
@@ -196,3 +197,4 @@ if menu == "Pinjaman":
                 "hasil_pinjaman.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+
